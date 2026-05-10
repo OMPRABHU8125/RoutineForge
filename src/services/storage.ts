@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DetailedMetrics } from '../analyzer/types/base';
 
 const STORAGE_KEYS = {
   SCAN_HISTORY: '@RoutineForge:scan_history',
@@ -6,39 +7,36 @@ const STORAGE_KEYS = {
 
 export interface ScanResult {
   id: string;
-  timestamp: string;
-  regionId: string;
+  timestamp: number;
   imageUri: string;
-  metrics: {
-    physiqueScore: number;
-    symmetryScore: number;
-    definitionScore: number;
-    consistencyImpact: number;
-    trend: number; // -1 to 1
-  };
+  metrics: DetailedMetrics;
   insight: string;
 }
 
-export const saveScanResult = async (result: ScanResult): Promise<void> => {
-  try {
-    const existing = await getScanHistory();
-    const updated = [result, ...existing];
-    await AsyncStorage.setItem(STORAGE_KEYS.SCAN_HISTORY, JSON.stringify(updated));
-  } catch (error) {
-    console.error('Error saving scan result:', error);
+class StorageService {
+  async saveScanResult(result: ScanResult): Promise<void> {
+    try {
+      const existing = await this.getHistory();
+      const updated = [result, ...existing];
+      await AsyncStorage.setItem(STORAGE_KEYS.SCAN_HISTORY, JSON.stringify(updated));
+    } catch (error) {
+      console.error('Error saving scan result:', error);
+    }
   }
-};
 
-export const getScanHistory = async (): Promise<ScanResult[]> => {
-  try {
-    const data = await AsyncStorage.getItem(STORAGE_KEYS.SCAN_HISTORY);
-    return data ? JSON.parse(data) : [];
-  } catch (error) {
-    console.error('Error getting scan history:', error);
-    return [];
+  async getHistory(): Promise<ScanResult[]> {
+    try {
+      const data = await AsyncStorage.getItem(STORAGE_KEYS.SCAN_HISTORY);
+      return data ? JSON.parse(data) : [];
+    } catch (error) {
+      console.error('Error getting scan history:', error);
+      return [];
+    }
   }
-};
 
-export const clearHistory = async (): Promise<void> => {
-  await AsyncStorage.removeItem(STORAGE_KEYS.SCAN_HISTORY);
-};
+  async clearHistory(): Promise<void> {
+    await AsyncStorage.removeItem(STORAGE_KEYS.SCAN_HISTORY);
+  }
+}
+
+export const storageService = new StorageService();

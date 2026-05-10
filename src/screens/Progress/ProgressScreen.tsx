@@ -1,88 +1,194 @@
-import React from 'react';
-import { ScrollView, StyleSheet, View, SafeAreaView } from 'react-native';
-import { TrendingUp, Calendar, Trophy } from 'lucide-react-native';
-import { COLORS, SPACING } from '../../theme';
+import React, { useState, useEffect } from 'react';
+import {
+  ScrollView,
+  StyleSheet,
+  View,
+  SafeAreaView,
+  TouchableOpacity,
+  Dimensions,
+} from 'react-native';
+import Svg, { Path, Circle, Polyline } from 'react-native-svg';
+import {
+  TrendingUp,
+  Calendar,
+  Award,
+  ChevronRight,
+  History,
+  Zap,
+} from 'lucide-react-native';
+import { COLORS, SPACING, BORDER_RADIUS } from '../../theme';
 import Typography from '../../components/shared/Typography';
 import Card from '../../components/shared/Card';
-import { PROGRESS_MOCK } from '../../data/mockData';
+import { storageService, ScanResult } from '../../services/storage';
+
+const { width } = Dimensions.get('window');
+const CHART_WIDTH = width - SPACING.lg * 2;
+const CHART_HEIGHT = 150;
 
 export const ProgressScreen = () => {
+  const [history, setHistory] = useState<ScanResult[]>([]);
+  const [bestScan, setBestScan] = useState<ScanResult | null>(null);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    const data = await storageService.getHistory();
+    setHistory(data.reverse()); // Chronological for chart
+    
+    if (data.length > 0) {
+      const best = [...data].sort((a, b) => b.metrics.physiqueScore - a.metrics.physiqueScore)[0];
+      setBestScan(best);
+    }
+  };
+
+  const renderChart = () => {
+    if (history.length < 2) {
+      return (
+        <Card variant="flat" style={styles.emptyChart}>
+          <Typography variant="caption" align="center">
+            Log at least 2 scans to see your progression chart.
+          </Typography>
+        </Card>
+      );
+    }
+
+    const scores = history.map(h => h.metrics.physiqueScore);
+    const min = Math.min(...scores) - 5;
+    const max = Math.max(...scores) + 5;
+    const range = max - min;
+
+    const points = history.map((h, i) => {
+      const x = (i / (history.length - 1)) * CHART_WIDTH;
+      const y = CHART_HEIGHT - ((h.metrics.physiqueScore - min) / range) * CHART_HEIGHT;
+      return `${x},${y}`;
+    }).join(' ');
+
+    return (
+      <View style={styles.chartContainer}>
+        <Svg width={CHART_WIDTH} height={CHART_HEIGHT}>
+          <Polyline
+            points={points}
+            fill="none"
+            stroke={COLORS.primary}
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {history.map((h, i) => {
+            const x = (i / (history.length - 1)) * CHART_WIDTH;
+            const y = CHART_HEIGHT - ((h.metrics.physiqueScore - min) / range) * CHART_HEIGHT;
+            return (
+              <Circle
+                key={h.id}
+                cx={x}
+                cy={y}
+                r="4"
+                fill={COLORS.primary}
+              />
+            );
+          })}
+        </Svg>
+        <View style={styles.chartLabels}>
+          <Typography variant="caption">{new Date(history[0].timestamp).toLocaleDateString()}</Typography>
+          <Typography variant="caption">{new Date(history[history.length - 1].timestamp).toLocaleDateString()}</Typography>
+        </View>
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Typography variant="h2" weight="bold">Physique Stats</Typography>
+        <Typography variant="h2" weight="bold">Physique Progress</Typography>
       </View>
-      
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Weekly Score Row */}
-        <View style={styles.scoreRow}>
-          <Card style={styles.scoreCard}>
-            <Trophy color={COLORS.primary} size={24} />
-            <Typography variant="h2" weight="bold" style={{ marginTop: 8 }}>
-              {PROGRESS_MOCK.weeklyScore}
-            </Typography>
-            <Typography variant="label">Weekly Score</Typography>
-          </Card>
-          <Card style={styles.scoreCard}>
-            <Calendar color={COLORS.primary} size={24} />
-            <Typography variant="h2" weight="bold" style={{ marginTop: 8 }}>
-              {PROGRESS_MOCK.consistency}%
-            </Typography>
-            <Typography variant="label">Consistency</Typography>
-          </Card>
-        </View>
 
-        {/* Muscle Group Progress */}
-        <Typography variant="h3" weight="bold" style={styles.sectionTitle}>
-          Muscle Group Gains
-        </Typography>
-        <Card>
-          {PROGRESS_MOCK.muscleGroups.map((group, index) => (
-            <View key={group.name} style={[
-              styles.progressItem,
-              index !== PROGRESS_MOCK.muscleGroups.length - 1 && styles.borderBottom
-            ]}>
-              <View style={styles.progressLabelRow}>
-                <Typography weight="semi-bold">{group.name}</Typography>
-                <Typography variant="caption" color={COLORS.primary}>
-                  +{Math.round(group.progress * 10)}%
-                </Typography>
-              </View>
-              <View style={styles.progressBarBg}>
-                <View style={[styles.progressBarFill, { width: `${group.progress * 100}%` }]} />
-              </View>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        {/* Trend Summary */}
+        <Card style={styles.trendCard}>
+          <View style={styles.trendInfo}>
+            <View>
+              <Typography variant="label">CURRENT STATE</Typography>
+              <Typography variant="h3" weight="bold" color={COLORS.primary}>
+                {history.length > 0 ? history[history.length - 1].metrics.evolutionState : 'Beginner'}
+              </Typography>
             </View>
-          ))}
+            <View style={styles.trendBadge}>
+              <TrendingUp color={COLORS.success} size={20} />
+              <Typography color={COLORS.success} weight="bold" style={{ marginLeft: 8 }}>
+                +{history.length > 1 ? (history[history.length - 1].metrics.trend).toFixed(1) : '0'}%
+              </Typography>
+            </View>
+          </View>
+          
+          <View style={styles.chartWrapper}>
+            {renderChart()}
+          </View>
         </Card>
 
-        {/* Timeline */}
-        <Typography variant="h3" weight="bold" style={styles.sectionTitle}>
-          Timeline
-        </Typography>
-        {PROGRESS_MOCK.timeline.map((entry) => (
-          <Card key={entry.date} variant="outline" style={styles.timelineCard}>
-            <View style={styles.timelineHeader}>
-              <Typography weight="bold">{entry.date}</Typography>
-              <TrendingUp color={COLORS.success} size={16} />
+        {/* Milestones */}
+        <Typography variant="h3" weight="bold" style={{ marginBottom: 16 }}>Milestones</Typography>
+        <View style={styles.milestonesGrid}>
+          <MilestoneCard 
+            icon={<Award color={COLORS.primary} size={24} />}
+            label="Best Score"
+            value={bestScan ? Math.round(bestScan.metrics.physiqueScore).toString() : '--'}
+          />
+          <MilestoneCard 
+            icon={<Zap color={COLORS.primary} size={24} />}
+            label="Consistency"
+            value={history.length > 5 ? 'High' : 'Newbie'}
+          />
+        </View>
+
+        {/* Historical Timeline */}
+        <Typography variant="h3" weight="bold" style={{ marginTop: 24, marginBottom: 16 }}>Timeline</Typography>
+        {[...history].reverse().map((item, index) => (
+          <TouchableOpacity key={item.id} style={styles.timelineItem}>
+            <View style={styles.timelineDotContainer}>
+              <View style={[styles.timelineDot, index === 0 && styles.activeDot]} />
+              {index !== history.length - 1 && <View style={styles.timelineLine} />}
             </View>
-            <View style={styles.timelineStats}>
-              <View>
-                <Typography variant="caption">Weight</Typography>
-                <Typography weight="semi-bold">{entry.weight} kg</Typography>
+            <Card variant="flat" style={styles.timelineCard}>
+              <View style={styles.timelineContent}>
+                <View>
+                  <Typography weight="bold">
+                    {new Date(item.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </Typography>
+                  <Typography variant="caption">Physique Scan</Typography>
+                </View>
+                <View style={styles.timelineScore}>
+                  <Typography color={COLORS.primary} weight="bold">
+                    {Math.round(item.metrics.physiqueScore)}
+                  </Typography>
+                  <ChevronRight color={COLORS.textSecondary} size={16} />
+                </View>
               </View>
-              <View style={{ marginLeft: 32 }}>
-                <Typography variant="caption">Body Fat</Typography>
-                <Typography weight="semi-bold">{entry.bf}%</Typography>
-              </View>
-            </View>
-          </Card>
+            </Card>
+          </TouchableOpacity>
         ))}
 
-        <View style={{ height: 40 }} />
+        {history.length === 0 && (
+          <View style={styles.emptyState}>
+            <History color={COLORS.textSecondary} size={48} />
+            <Typography variant="body" color={COLORS.textSecondary} style={{ marginTop: 16 }}>
+              No scans yet. Start your journey in the Analyze tab.
+            </Typography>
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
 };
+
+const MilestoneCard = ({ icon, label, value }: any) => (
+  <Card variant="outline" style={styles.milestoneItem}>
+    {icon}
+    <Typography variant="label" style={{ marginTop: 12 }}>{label}</Typography>
+    <Typography variant="h3" weight="bold" color={COLORS.textPrimary}>{value}</Typography>
+  </Card>
+);
 
 const styles = StyleSheet.create({
   container: {
@@ -94,55 +200,100 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: SPACING.lg,
-    paddingTop: 0,
+    paddingBottom: 40,
   },
-  scoreRow: {
+  trendCard: {
+    marginBottom: 24,
+  },
+  trendInfo: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: SPACING.xl,
+    alignItems: 'center',
+    marginBottom: 20,
   },
-  scoreCard: {
+  trendBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(74, 222, 128, 0.1)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  chartWrapper: {
+    marginTop: 10,
+  },
+  chartContainer: {
+    alignItems: 'center',
+  },
+  chartLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: CHART_WIDTH,
+    marginTop: 8,
+  },
+  emptyChart: {
+    height: CHART_HEIGHT,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  milestonesGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  milestoneItem: {
     flex: 1,
     marginHorizontal: 4,
     alignItems: 'center',
   },
-  sectionTitle: {
-    marginBottom: SPACING.md,
-    marginTop: SPACING.sm,
-  },
-  progressItem: {
-    paddingVertical: 12,
-  },
-  borderBottom: {
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  progressLabelRow: {
+  timelineItem: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: 0,
   },
-  progressBarBg: {
-    height: 6,
-    backgroundColor: COLORS.surfaceElevated,
-    borderRadius: 3,
-    overflow: 'hidden',
+  timelineDotContainer: {
+    width: 24,
+    alignItems: 'center',
+    marginRight: 12,
   },
-  progressBarFill: {
-    height: '100%',
+  timelineDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    marginTop: 20,
+    zIndex: 2,
+  },
+  activeDot: {
     backgroundColor: COLORS.primary,
+    borderWidth: 3,
+    borderColor: 'rgba(215, 255, 0, 0.3)',
+  },
+  timelineLine: {
+    position: 'absolute',
+    top: 32,
+    bottom: -20,
+    width: 2,
+    backgroundColor: 'rgba(255,255,255,0.1)',
   },
   timelineCard: {
-    marginBottom: SPACING.md,
+    flex: 1,
+    marginBottom: 16,
+    padding: 16,
   },
-  timelineHeader: {
+  timelineContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
   },
-  timelineStats: {
+  timelineScore: {
     flexDirection: 'row',
+    alignItems: 'center',
+  },
+  emptyState: {
+    alignItems: 'center',
+    marginTop: 60,
   },
 });
 

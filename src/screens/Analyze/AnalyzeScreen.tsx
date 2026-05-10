@@ -6,6 +6,7 @@ import {
   SafeAreaView,
   TouchableOpacity,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import {
   Info,
@@ -20,24 +21,26 @@ import { CameraCapture } from '../../components/analyze/CameraCapture';
 import { PoseGuide } from '../../components/analyze/PoseGuide';
 import { AnalysisResults } from '../../components/analyze/AnalysisResults';
 import { useCameraSystem } from '../../hooks/useCameraSystem';
-import { analyzePhysique } from '../../analyzer/analyzerEngine';
-import { saveScanResult, getScanHistory, ScanResult } from '../../services/storage';
+import { analyzePhysique } from '../../analyzer/engine/progressionEngine';
+import { performQualityCheck } from '../../analyzer/quality/qualityEngine';
+import { storageService, ScanResult } from '../../services/storage';
+import { RegionType } from '../../analyzer/types/base';
 
 const REGIONS = [
   { 
-    id: 'arms', 
+    id: 'Arms', 
     title: 'Arms', 
     description: 'Flexed bicep pose for peak analysis',
     instructions: 'Stand sideways, flex your dominant arm at 90 degrees.',
   },
   { 
-    id: 'abdomen', 
+    id: 'Abdomen', 
     title: 'Abdomen', 
     description: 'Front relaxed pose for core definition',
     instructions: 'Stand tall, exhaled, hands at sides or behind head.',
   },
   { 
-    id: 'fullbody', 
+    id: 'Full Body', 
     title: 'Full Body', 
     description: 'Front standing pose for overall symmetry',
     instructions: 'Stand straight, legs shoulder width apart.',
@@ -64,27 +67,51 @@ export const AnalyzeScreen = () => {
   }, []);
 
   const loadHistory = async () => {
-    const data = await getScanHistory();
+    const data = await storageService.getHistory();
     setHistory(data);
   };
 
   useEffect(() => {
     if (step === 'analyzing' && capturedPhoto && selectedRegion) {
-      performAnalysis();
+      performFullWorkflow();
     }
   }, [step, capturedPhoto, selectedRegion]);
 
-  const performAnalysis = async () => {
+  const performFullWorkflow = async () => {
+    if (!capturedPhoto || !selectedRegion) return;
+    
+    try {
+      // 1. Quality Check
+      const quality = await performQualityCheck(capturedPhoto.path);
+      
+      if (!quality.isGood) {
+        Alert.alert(
+          'Quality Warning',
+          quality.warnings.join('\n'),
+          [
+            { text: 'Retake', onPress: () => setStep('capturing') },
+            { text: 'Analyze Anyway', onPress: () => runAnalysis() }
+          ]
+        );
+      } else {
+        await runAnalysis();
+      }
+    } catch (e) {
+      console.error(e);
+      setStep('idle');
+    }
+  };
+
+  const runAnalysis = async () => {
     if (!capturedPhoto || !selectedRegion) return;
     
     try {
       const result = await analyzePhysique(
-        selectedRegion.id, 
-        capturedPhoto.path, 
-        history
+        capturedPhoto.path,
+        selectedRegion.id as RegionType
       );
       setAnalysisResult(result);
-      await saveScanResult(result);
+      await storageService.saveScanResult(result);
       await loadHistory();
       setStep('result');
     } catch (e) {
@@ -96,7 +123,7 @@ export const AnalyzeScreen = () => {
   if (step === 'capturing' && selectedRegion) {
     return (
       <CameraCapture onCapture={onCapture} onClose={cancelCapture}>
-        <PoseGuide regionId={selectedRegion.id} />
+        <PoseGuide regionId={selectedRegion.id.toLowerCase() as any} />
         <View style={styles.guideOverlay}>
           <Typography color={COLORS.primary} weight="bold" align="center">
             {selectedRegion.instructions}
@@ -111,10 +138,10 @@ export const AnalyzeScreen = () => {
       <View style={[styles.container, styles.centered]}>
         <ActivityIndicator size="large" color={COLORS.primary} />
         <Typography variant="h3" weight="bold" style={{ marginTop: 24 }}>
-          AI Processing...
+          AI Intelligence Processing...
         </Typography>
         <Typography variant="caption" align="center" style={{ marginTop: 8, paddingHorizontal: 40 }}>
-          Analyzing muscle symmetry and definition markers for {selectedRegion?.title}
+          Analyzing muscle symmetry, definition, and historical progression markers for {selectedRegion?.title}
         </Typography>
       </View>
     );
@@ -172,21 +199,28 @@ export const AnalyzeScreen = () => {
 
             {history.length > 0 && (
               <View style={{ marginTop: 32 }}>
-                <Typography variant="h3" weight="bold" style={{ marginBottom: 16 }}>
-                  Recent Scans
-                </Typography>
+                <View style={styles.historyHeader}>
+                  <Typography variant="h3" weight="bold">Recent Scans</Typography>
+                  <TouchableOpacity onPress={() => storageService.clearHistory().then(loadHistory)}>
+                    <Typography variant="caption" color={COLORS.primary}>Clear</Typography>
+                  </TouchableOpacity>
+                </View>
                 {history.slice(0, 3).map((item) => (
                   <Card key={item.id} variant="outline" style={{ marginBottom: 12 }}>
                     <View style={styles.historyItem}>
-                      <Typography weight="semi-bold">
-                        {REGIONS.find(r => r.id === item.regionId)?.title}
-                      </Typography>
-                      <Typography variant="caption">
-                        {new Date(item.timestamp).toLocaleDateString()}
-                      </Typography>
-                      <Typography color={COLORS.primary} weight="bold">
-                        Score: {Math.round(item.metrics.physiqueScore)}
-                      </Typography>
+                      <View>
+                        <Typography weight="semi-bold">
+                          {item.metrics.evolutionState} - {new Date(item.timestamp).toLocaleDateString()}
+                        </Typography>
+                        <Typography variant="caption">
+                          Trend: {item.metrics.trend > 0 ? 'Improving' : 'Stable'}
+                        </Typography>
+                      </View>
+                      <View style={styles.historyScore}>
+                        <Typography color={COLORS.primary} weight="bold" variant="h3">
+                          {Math.round(item.metrics.physiqueScore)}
+                        </Typography>
+                      </View>
                     </View>
                   </Card>
                 ))}
@@ -287,9 +321,23 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: BORDER_RADIUS.md,
   },
+  historyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
   historyItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  historyScore: {
+    backgroundColor: 'rgba(215, 255, 0, 0.1)',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
     alignItems: 'center',
   },
 });
