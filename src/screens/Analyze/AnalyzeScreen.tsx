@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -8,9 +8,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import {
-  Camera,
   Info,
-  CheckCircle2,
   ChevronLeft,
   Scan as ScanIcon,
 } from 'lucide-react-native';
@@ -18,28 +16,97 @@ import { COLORS, SPACING, BORDER_RADIUS } from '../../theme';
 import Typography from '../../components/shared/Typography';
 import Card from '../../components/shared/Card';
 import Button from '../../components/shared/Button';
-import { SCAN_REGIONS } from '../../data/mockData';
+import { CameraCapture } from '../../components/analyze/CameraCapture';
+import { PoseGuide } from '../../components/analyze/PoseGuide';
+import { AnalysisResults } from '../../components/analyze/AnalysisResults';
+import { useCameraSystem } from '../../hooks/useCameraSystem';
+import { analyzePhysique } from '../../analyzer/analyzerEngine';
+import { saveScanResult, getScanHistory, ScanResult } from '../../services/storage';
 
-type FlowState = 'selection' | 'instructions' | 'scanning' | 'result';
+const REGIONS = [
+  { 
+    id: 'arms', 
+    title: 'Arms', 
+    description: 'Flexed bicep pose for peak analysis',
+    instructions: 'Stand sideways, flex your dominant arm at 90 degrees.',
+  },
+  { 
+    id: 'abdomen', 
+    title: 'Abdomen', 
+    description: 'Front relaxed pose for core definition',
+    instructions: 'Stand tall, exhaled, hands at sides or behind head.',
+  },
+  { 
+    id: 'fullbody', 
+    title: 'Full Body', 
+    description: 'Front standing pose for overall symmetry',
+    instructions: 'Stand straight, legs shoulder width apart.',
+  },
+] as const;
 
 export const AnalyzeScreen = () => {
-  const [step, setStep] = useState<FlowState>('selection');
-  const [selectedRegion, setSelectedRegion] = useState<any>(null);
+  const { 
+    step, 
+    setStep, 
+    capturedPhoto, 
+    startCapture, 
+    cancelCapture, 
+    onCapture, 
+    reset 
+  } = useCameraSystem();
 
-  const startScan = () => {
-    setStep('scanning');
-    // Mock processing time
-    setTimeout(() => {
+  const [selectedRegion, setSelectedRegion] = useState<typeof REGIONS[number] | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<ScanResult | null>(null);
+  const [history, setHistory] = useState<ScanResult[]>([]);
+
+  useEffect(() => {
+    loadHistory();
+  }, []);
+
+  const loadHistory = async () => {
+    const data = await getScanHistory();
+    setHistory(data);
+  };
+
+  useEffect(() => {
+    if (step === 'analyzing' && capturedPhoto && selectedRegion) {
+      performAnalysis();
+    }
+  }, [step, capturedPhoto, selectedRegion]);
+
+  const performAnalysis = async () => {
+    if (!capturedPhoto || !selectedRegion) return;
+    
+    try {
+      const result = await analyzePhysique(
+        selectedRegion.id, 
+        capturedPhoto.path, 
+        history
+      );
+      setAnalysisResult(result);
+      await saveScanResult(result);
+      await loadHistory();
       setStep('result');
-    }, 3000);
+    } catch (e) {
+      console.error(e);
+      setStep('idle');
+    }
   };
 
-  const reset = () => {
-    setStep('selection');
-    setSelectedRegion(null);
-  };
+  if (step === 'capturing' && selectedRegion) {
+    return (
+      <CameraCapture onCapture={onCapture} onClose={cancelCapture}>
+        <PoseGuide regionId={selectedRegion.id} />
+        <View style={styles.guideOverlay}>
+          <Typography color={COLORS.primary} weight="bold" align="center">
+            {selectedRegion.instructions}
+          </Typography>
+        </View>
+      </CameraCapture>
+    );
+  }
 
-  if (step === 'scanning') {
+  if (step === 'analyzing') {
     return (
       <View style={[styles.container, styles.centered]}>
         <ActivityIndicator size="large" color={COLORS.primary} />
@@ -47,72 +114,48 @@ export const AnalyzeScreen = () => {
           AI Processing...
         </Typography>
         <Typography variant="caption" align="center" style={{ marginTop: 8, paddingHorizontal: 40 }}>
-          Analyzing muscle symmetry and definition markers
+          Analyzing muscle symmetry and definition markers for {selectedRegion?.title}
         </Typography>
       </View>
     );
   }
 
-  if (step === 'result') {
+  if (step === 'result' && analysisResult) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.content}>
-          <View style={styles.resultHeader}>
-            <CheckCircle2 color={COLORS.success} size={48} />
-            <Typography variant="h2" weight="bold" style={{ marginTop: 16 }}>
-              Analysis Complete
-            </Typography>
-          </View>
-
-          <Card style={{ marginTop: 32 }}>
-            <Typography variant="label" color={COLORS.primary}>
-              {selectedRegion?.title} Insight
-            </Typography>
-            <Typography variant="h3" weight="semi-bold" style={{ marginTop: 12 }}>
-              Symmetry Detected: 94%
-            </Typography>
-            <Typography variant="body" style={{ marginTop: 12, color: COLORS.textSecondary }}>
-              Based on the scan, your {selectedRegion?.title.toLowerCase()} show significant improvement in peak contraction. 
-              Minimal imbalances detected in the lateral head.
-            </Typography>
-          </Card>
-
-          <Button
-            title="Done"
-            onPress={reset}
-            style={{ marginTop: 'auto', marginBottom: 20 }}
-          />
-        </View>
-      </SafeAreaView>
+      <AnalysisResults 
+        result={analysisResult} 
+        onDone={() => {
+          reset();
+          setSelectedRegion(null);
+          setAnalysisResult(null);
+        }} 
+      />
     );
   }
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        {step === 'instructions' && (
-          <TouchableOpacity onPress={() => setStep('selection')} style={styles.backButton}>
+        {selectedRegion && (
+          <TouchableOpacity onPress={() => setSelectedRegion(null)} style={styles.backButton}>
             <ChevronLeft color={COLORS.textPrimary} />
           </TouchableOpacity>
         )}
         <Typography variant="h2" weight="bold">
-          {step === 'selection' ? 'Physique Analyzer' : 'Instructions'}
+          {selectedRegion ? 'Instructions' : 'Physique Analyzer'}
         </Typography>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {step === 'selection' ? (
+        {!selectedRegion ? (
           <>
             <Typography variant="body" style={{ marginBottom: SPACING.lg }}>
               Select a body region to begin your AI-powered physique analysis.
             </Typography>
-            {SCAN_REGIONS.map((region) => (
+            {REGIONS.map((region) => (
               <Card
                 key={region.id}
-                onPress={() => {
-                  setSelectedRegion(region);
-                  setStep('instructions');
-                }}
+                onPress={() => setSelectedRegion(region)}
                 style={styles.regionCard}
               >
                 <View style={styles.regionInfo}>
@@ -126,35 +169,48 @@ export const AnalyzeScreen = () => {
                 </View>
               </Card>
             ))}
+
+            {history.length > 0 && (
+              <View style={{ marginTop: 32 }}>
+                <Typography variant="h3" weight="bold" style={{ marginBottom: 16 }}>
+                  Recent Scans
+                </Typography>
+                {history.slice(0, 3).map((item) => (
+                  <Card key={item.id} variant="outline" style={{ marginBottom: 12 }}>
+                    <View style={styles.historyItem}>
+                      <Typography weight="semi-bold">
+                        {REGIONS.find(r => r.id === item.regionId)?.title}
+                      </Typography>
+                      <Typography variant="caption">
+                        {new Date(item.timestamp).toLocaleDateString()}
+                      </Typography>
+                      <Typography color={COLORS.primary} weight="bold">
+                        Score: {Math.round(item.metrics.physiqueScore)}
+                      </Typography>
+                    </View>
+                  </Card>
+                ))}
+              </View>
+            )}
           </>
         ) : (
           <View>
             <Typography variant="h3" weight="semi-bold" style={{ marginBottom: 16 }}>
               Scan Guidelines
             </Typography>
-            <View style={styles.instructionItem}>
-              <Info color={COLORS.primary} size={20} />
-              <Typography style={{ marginLeft: 12 }}>Use bright, natural lighting</Typography>
-            </View>
-            <View style={styles.instructionItem}>
-              <Info color={COLORS.primary} size={20} />
-              <Typography style={{ marginLeft: 12 }}>Keep consistent distance (approx 3ft)</Typography>
-            </View>
-            <View style={styles.instructionItem}>
-              <Info color={COLORS.primary} size={20} />
-              <Typography style={{ marginLeft: 12 }}>Maintain the same angle as previous scans</Typography>
-            </View>
+            <InstructionItem text="Use bright, natural lighting" />
+            <InstructionItem text="Keep consistent distance (approx 3ft)" />
+            <InstructionItem text="Maintain the same angle as previous scans" />
 
-            <View style={styles.placeholderContainer}>
-              <Camera color={COLORS.textTertiary} size={48} />
-              <Typography variant="caption" style={{ marginTop: 12 }}>
-                Camera Preview Placeholder
+            <View style={styles.instructionCard}>
+              <Typography variant="body" color={COLORS.textSecondary}>
+                {selectedRegion.instructions}
               </Typography>
             </View>
 
             <Button
-              title="Start AI Scan"
-              onPress={startScan}
+              title="Open AI Camera"
+              onPress={startCapture}
               style={{ marginTop: 32 }}
             />
           </View>
@@ -163,6 +219,13 @@ export const AnalyzeScreen = () => {
     </SafeAreaView>
   );
 };
+
+const InstructionItem = ({ text }: { text: string }) => (
+  <View style={styles.instructionItem}>
+    <Info color={COLORS.primary} size={20} />
+    <Typography style={{ marginLeft: 12 }}>{text}</Typography>
+  </View>
+);
 
 const styles = StyleSheet.create({
   container: {
@@ -203,28 +266,31 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: BORDER_RADIUS.md,
   },
-  placeholderContainer: {
-    height: 300,
-    backgroundColor: COLORS.surface,
+  instructionCard: {
+    padding: 20,
+    backgroundColor: COLORS.surfaceElevated,
     borderRadius: BORDER_RADIUS.lg,
-    borderWidth: 2,
-    borderColor: COLORS.border,
-    borderStyle: 'dashed',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 24,
+    marginTop: 20,
+    borderLeftWidth: 4,
+    borderLeftColor: COLORS.primary,
   },
   centered: {
     justifyContent: 'center',
     alignItems: 'center',
   },
-  content: {
-    flex: 1,
-    padding: SPACING.lg,
+  guideOverlay: {
+    position: 'absolute',
+    top: 120,
+    left: 40,
+    right: 40,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    padding: 16,
+    borderRadius: BORDER_RADIUS.md,
   },
-  resultHeader: {
+  historyItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 40,
   },
 });
 
