@@ -10,11 +10,12 @@ import {
 import Svg, { Path, Circle, Polyline } from 'react-native-svg';
 import {
   TrendingUp,
-  Calendar,
   Award,
   ChevronRight,
   History,
   Zap,
+  Activity,
+  Target
 } from 'lucide-react-native';
 import { COLORS, SPACING, BORDER_RADIUS } from '../../theme';
 import Typography from '../../components/shared/Typography';
@@ -35,7 +36,9 @@ export const ProgressScreen = () => {
 
   const loadData = async () => {
     const data = await storageService.getHistory();
-    setHistory(data.reverse()); // Chronological for chart
+    // For the chart, we want chronological order
+    const chronological = [...data].reverse();
+    setHistory(chronological);
     
     if (data.length > 0) {
       const best = [...data].sort((a, b) => b.metrics.physiqueScore - a.metrics.physiqueScore)[0];
@@ -48,7 +51,7 @@ export const ProgressScreen = () => {
       return (
         <Card variant="flat" style={styles.emptyChart}>
           <Typography variant="caption" align="center">
-            Log at least 2 scans to see your progression chart.
+            Log at least 2 scans to see your personalized progression chart.
           </Typography>
         </Card>
       );
@@ -101,7 +104,7 @@ export const ProgressScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Typography variant="h2" weight="bold">Physique Progress</Typography>
+        <Typography variant="h2" weight="bold">Intelligence Progress</Typography>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -127,18 +130,40 @@ export const ProgressScreen = () => {
           </View>
         </Card>
 
+        {/* Personalized Trait Evolution */}
+        {history.length > 0 && history[history.length - 1].metrics.traits && (
+          <>
+            <Typography variant="h3" weight="bold" style={{ marginBottom: 16 }}>Trait Evolution</Typography>
+            <View style={styles.traitsTimeline}>
+              {history[history.length - 1].metrics.traits.map((trait) => (
+                <Card key={trait.id} variant="flat" style={styles.traitEvolutionCard}>
+                  <View style={styles.traitHeader}>
+                    <Typography weight="semi-bold">{trait.label}</Typography>
+                    <Typography variant="caption" color={trait.trend >= 0 ? COLORS.success : COLORS.error}>
+                      {trait.trend >= 0 ? '+' : ''}{Math.round(trait.trend)}%
+                    </Typography>
+                  </View>
+                  <View style={styles.traitProgressBarBg}>
+                    <View style={[styles.traitProgressBarFill, { width: `${trait.value}%` }]} />
+                  </View>
+                </Card>
+              ))}
+            </View>
+          </>
+        )}
+
         {/* Milestones */}
-        <Typography variant="h3" weight="bold" style={{ marginBottom: 16 }}>Milestones</Typography>
+        <Typography variant="h3" weight="bold" style={{ marginTop: 24, marginBottom: 16 }}>Milestones</Typography>
         <View style={styles.milestonesGrid}>
           <MilestoneCard 
             icon={<Award color={COLORS.primary} size={24} />}
-            label="Best Score"
+            label="Personal Best"
             value={bestScan ? Math.round(bestScan.metrics.physiqueScore).toString() : '--'}
           />
           <MilestoneCard 
-            icon={<Zap color={COLORS.primary} size={24} />}
-            label="Consistency"
-            value={history.length > 5 ? 'High' : 'Newbie'}
+            icon={<Activity color={COLORS.primary} size={24} />}
+            label="Baseline"
+            value={history.length > 0 ? 'Calibrated' : 'Learning'}
           />
         </View>
 
@@ -156,7 +181,7 @@ export const ProgressScreen = () => {
                   <Typography weight="bold">
                     {new Date(item.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </Typography>
-                  <Typography variant="caption">Physique Scan</Typography>
+                  <Typography variant="caption">State: {item.metrics.evolutionState}</Typography>
                 </View>
                 <View style={styles.timelineScore}>
                   <Typography color={COLORS.primary} weight="bold">
@@ -239,6 +264,29 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
   },
+  traitsTimeline: {
+    marginBottom: 8,
+  },
+  traitEvolutionCard: {
+    marginBottom: 10,
+    padding: 12,
+  },
+  traitHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  traitProgressBarBg: {
+    height: 4,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 2,
+  },
+  traitProgressBarFill: {
+    height: '100%',
+    backgroundColor: COLORS.primary,
+    borderRadius: 2,
+  },
   milestonesGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -250,7 +298,6 @@ const styles = StyleSheet.create({
   },
   timelineItem: {
     flexDirection: 'row',
-    marginBottom: 0,
   },
   timelineDotContainer: {
     width: 24,

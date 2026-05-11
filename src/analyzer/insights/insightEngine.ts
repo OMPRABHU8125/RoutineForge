@@ -5,32 +5,38 @@ export const generateInsight = (
   comparison: ComparisonResult,
   consistency: number
 ): string => {
-  const { evolutionState, regions } = metrics;
+  const { evolutionState, regions, baseline, traits, confidence } = metrics;
   const { trendDirection } = comparison;
 
   const insights: string[] = [];
 
-  // Base state-aware insight
-  if (evolutionState === 'Beginner') {
-    insights.push('You are in the "Newbie Gains" phase. Keep showing up!');
-  } else if (evolutionState === 'Elite') {
-    insights.push('Exceptional physique maintenance. Your consistency is top-tier.');
+  // 1. Personalized Context
+  if (baseline && baseline.scanCount > 5) {
+    insights.push(`Analyzing against your calibrated baseline of ${Math.round(baseline.startingScore)}.`);
   }
 
-  // Trend-aware insight
+  // 2. Trait-Based Insights (Explainable)
+  const improvingTrait = traits.sort((a, b) => b.trend - a.trend)[0];
+  if (improvingTrait && improvingTrait.trend > 1) {
+    insights.push(`${improvingTrait.label} is showing noticeable evolution (+${Math.round(improvingTrait.trend)}%).`);
+  }
+
+  // 3. Memory-Based Logic
+  const stubbornRegion = Object.entries(regions).find(([_, r]) => r.isStubbornRegion);
+  if (stubbornRegion) {
+    insights.push(`${stubbornRegion[0]} remains stable; metabolic adaptation suggested for this region.`);
+  }
+
+  // 4. Trend & State Reasoning
   if (trendDirection === 'up') {
-    insights.push('Muscle density markers are showing a clear upward trend.');
-  } else if (trendDirection === 'down') {
-    insights.push('Metabolic markers suggest a slight recovery phase is needed.');
+    insights.push(`Progression trend is positive as you move deeper into the ${evolutionState} state.`);
   }
 
-  // Region-aware insight
-  const bestRegion = Object.entries(regions).sort((a, b) => b[1].progress - a[1].progress)[0];
-  insights.push(`${bestRegion[0]} development is particularly strong this session.`);
-
-  // Consistency-aware insight
-  if (consistency < 0.4) {
-    insights.push('Gaps between scans are reducing analysis confidence. Try scanning weekly.');
+  // 5. Confidence Explanation
+  if (confidence === 'High') {
+    insights.push('Confidence is high due to consistent scan framing and stable trait markers.');
+  } else if (confidence === 'Low') {
+    insights.push('Consistency gaps are reducing analysis certainty. Calibrating with lower weights.');
   }
 
   return insights.join(' ');

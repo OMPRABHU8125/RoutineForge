@@ -12,13 +12,37 @@ export interface CVMetrics {
   poseConfidence: number;
 }
 
+export interface PhysiqueTrait {
+  id: string;
+  label: string;
+  value: number; // 0-100
+  trend: number; // -100 to 100
+  evolution: string; // e.g., "Steady", "Emerging", "Stable"
+}
+
+export interface ExplainableInsight {
+  primary: string;
+  reasoning: string;
+  confidenceExplanation: string;
+}
+
 export interface RegionMetrics {
   definition: number;
   symmetry: number;
   progress: number;
   consistencyImpact: number;
   recoveryIndicator: number;
-  segmentationUri?: string; // URI to segmented mask/crop
+  segmentationUri?: string;
+  isStrongRegion: boolean;
+  isStubbornRegion: boolean;
+}
+
+export interface PersonalBaseline {
+  startingScore: number;
+  startingDate: number;
+  initialProportions: Record<RegionType, number>;
+  historicalAvg: number;
+  scanCount: number;
 }
 
 export interface DetailedMetrics {
@@ -30,14 +54,16 @@ export interface DetailedMetrics {
   evolutionState: EvolutionState;
   regions: Record<RegionType, RegionMetrics>;
   visionData: CVMetrics;
-  similarityScore?: number; // Visual similarity to best/previous scan
+  similarityScore: number;
+  traits: PhysiqueTrait[];
+  baseline?: PersonalBaseline;
 }
 
 export interface ComparisonResult {
   percentImprovement: number;
   trendDirection: 'up' | 'down' | 'stable';
   summary: string;
-  visualCertainty: number; // 0-1
+  visualCertainty: number;
 }
 
 export interface QualityCheckResult {
@@ -47,7 +73,7 @@ export interface QualityCheckResult {
   warnings: string[];
 }
 
-export type PhysiqueEmbedding = number[]; // 1D vector of features
+export type PhysiqueEmbedding = number[];
 
 export interface SegmentationResult {
   maskUri: string;

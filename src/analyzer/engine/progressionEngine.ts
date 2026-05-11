@@ -13,34 +13,35 @@ import { performQualityCheck } from '../quality/qualityEngine';
 import { segmentPhysique } from '../segmentation/segmentationEngine';
 import { extractPhysiqueEmbeddings } from '../embeddings/embeddingEngine';
 import { calculateCosineSimilarity } from '../similarity/similarityEngine';
+import { normalizeScan } from '../normalization/normalizationEngine';
+import { calibrateBaseline, calculatePersonalizedScore } from '../calibration/calibrationEngine';
+import { extractPhysiqueTraits } from '../traits/traitEngine';
+import { analyzeRegionMemory } from '../memory/memoryEngine';
 
 export const analyzePhysique = async (
   imageUri: string,
   regionType: RegionType = 'Full Body'
 ): Promise<ScanResult> => {
-  // --- CV PIPELINE START ---
-  
-  // 1. Quality Validation
+  // 1. Normalization
+  await normalizeScan(imageUri);
+
+  // 2. Quality Validation
   const quality = await performQualityCheck(imageUri);
   
-  // 2. Segmentation
+  // 3. Segmentation & Feature Extraction
   const segmentation = await segmentPhysique(imageUri);
-  
-  // 3. Embedding Extraction (DINOv2)
   const currentEmbedding = await extractPhysiqueEmbeddings(imageUri);
   
-  // --- CV PIPELINE END ---
-
-  // 4. Fetch History & Context
+  // 4. History & Memory Context
   const history = await storageService.getHistory();
   const lastScan = history[0];
   const scanCount = history.length;
+  const regionMemory = analyzeRegionMemory(history);
+  const baseline = calibrateBaseline(history);
   
   // 5. Visual Similarity Comparison
   let similarityScore = 1.0;
   if (lastScan) {
-    // In a real app, we would store/fetch embeddings from DB
-    // For now, we simulate comparison
     const mockPrevEmbedding = await extractPhysiqueEmbeddings(lastScan.imageUri);
     similarityScore = calculateCosineSimilarity(currentEmbedding, mockPrevEmbedding);
   }
@@ -53,54 +54,63 @@ export const analyzePhysique = async (
     if (daysSinceLast > 30) consistency = 0.2;
   }
 
-  // 7. Progression Scoring (Heuristic + CV Influenced)
-  let baseScore = 70;
+  // 7. Base Progression Scoring
+  let rawBaseScore = 70;
   if (lastScan) {
     const prevScore = lastScan.metrics.physiqueScore;
-    // Scores are influenced by visual similarity and quality
     const visualShift = (1 - similarityScore) * 10; 
     const qualityBonus = (quality.score - 0.5) * 2;
-    
-    baseScore = Math.min(99, prevScore + (visualShift * consistency) + qualityBonus);
+    rawBaseScore = Math.min(99, prevScore + (visualShift * consistency) + qualityBonus);
   } else {
-    baseScore = 65 + (Math.random() * 10);
+    rawBaseScore = 65 + (Math.random() * 10);
   }
 
-  // 8. Region Specific Analysis
+  // 8. PERSONALIZATION: Calibrate against baseline and state
+  const evolutionState = determineEvolutionState(scanCount, rawBaseScore, consistency);
+  const physiqueScore = calculatePersonalizedScore(rawBaseScore, baseline, evolutionState);
+
+  // 9. Region Analysis with Memory
   const regions = {
-    Arms: calculateRegionMetrics('Arms', baseScore, consistency),
-    Abdomen: calculateRegionMetrics('Abdomen', baseScore, consistency),
-    'Full Body': calculateRegionMetrics('Full Body', baseScore, consistency),
+    Arms: { ...calculateRegionMetrics('Arms', physiqueScore, consistency), ...regionMemory.Arms },
+    Abdomen: { ...calculateRegionMetrics('Abdomen', physiqueScore, consistency), ...regionMemory.Abdomen },
+    'Full Body': { ...calculateRegionMetrics('Full Body', physiqueScore, consistency), ...regionMemory['Full Body'] },
   };
 
-  // Add segmentation URIs to regions
+  // Add segmentation URIs
   Object.keys(regions).forEach(key => {
-    regions[key as RegionType].segmentationUri = segmentation.regionCrops[key as RegionType];
+    (regions[key as RegionType] as any).segmentationUri = segmentation.regionCrops[key as RegionType];
   });
 
-  // 9. Confidence Calculation (Advanced)
-  let confidence: ConfidenceLevel = 'Low';
-  const qualityFactor = quality.score;
-  const historyFactor = Math.min(1, scanCount / 10);
-  const compositeConfidence = (qualityFactor * 0.4) + (historyFactor * 0.4) + (consistency * 0.2);
+  // 10. Trait Extraction
+  const detailedMetricsPlaceholder: any = { regions, physiqueScore }; // Partial for trait engine
+  const traits = extractPhysiqueTraits(detailedMetricsPlaceholder, baseline);
 
-  if (compositeConfidence > 0.8) confidence = 'High';
-  else if (compositeConfidence > 0.5) confidence = 'Moderate';
-
+  // 11. Final Metrics Assembly
   const detailedMetrics: DetailedMetrics = {
-    physiqueScore: baseScore,
+    physiqueScore,
     symmetryScore: regions[regionType].symmetry,
     definitionScore: regions[regionType].definition,
     trend: 0,
-    confidence,
-    evolutionState: determineEvolutionState(scanCount, baseScore, consistency),
-    regions,
+    confidence: 'Low',
+    evolutionState,
+    regions: regions as any,
     visionData: quality.metrics,
     similarityScore,
+    traits,
+    baseline,
   };
 
-  // 10. Comparison & Insights
-  const comparison = compareScans(baseScore, lastScan?.metrics.physiqueScore);
+  // 12. Confidence Refinement
+  const qualityFactor = quality.score;
+  const stabilityFactor = similarityScore > 0.95 ? 1 : 0.8;
+  const historyFactor = Math.min(1, scanCount / 10);
+  const compositeConfidence = (qualityFactor * 0.3) + (historyFactor * 0.4) + (consistency * 0.2) + (stabilityFactor * 0.1);
+
+  if (compositeConfidence > 0.85) detailedMetrics.confidence = 'High';
+  else if (compositeConfidence > 0.55) detailedMetrics.confidence = 'Moderate';
+
+  // 13. Comparison & Insights
+  const comparison = compareScans(physiqueScore, lastScan?.metrics.physiqueScore);
   detailedMetrics.trend = comparison.percentImprovement;
   const insight = generateInsight(detailedMetrics, comparison, consistency);
 

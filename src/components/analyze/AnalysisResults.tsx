@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { StyleSheet, View, Image, ScrollView, Animated } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, View, Image, ScrollView, Animated, TouchableOpacity } from 'react-native';
 import { 
   Sparkles, 
   TrendingUp, 
@@ -10,7 +10,11 @@ import {
   Zap,
   Eye,
   Sun,
-  Layers
+  Layers,
+  ChevronDown,
+  ChevronUp,
+  Activity,
+  History
 } from 'lucide-react-native';
 import { COLORS, SPACING, BORDER_RADIUS } from '../../theme';
 import Typography from '../shared/Typography';
@@ -24,6 +28,7 @@ interface AnalysisResultsProps {
 }
 
 export const AnalysisResults: React.FC<AnalysisResultsProps> = ({ result, onDone }) => {
+  const [showReasoning, setShowReasoning] = useState(false);
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
   const slideAnim = React.useRef(new Animated.Value(20)).current;
 
@@ -103,49 +108,64 @@ export const AnalysisResults: React.FC<AnalysisResultsProps> = ({ result, onDone
         />
       </View>
 
-      {/* AI Insight */}
+      {/* AI Insight & Reasoning */}
       <Card style={styles.insightCard}>
         <View style={styles.cardHeader}>
           <Sparkles color={COLORS.primary} size={18} />
-          <Typography variant="label" style={{ marginLeft: 8 }}>CV INTELLIGENCE</Typography>
+          <Typography variant="label" style={{ marginLeft: 8 }}>PERSONALIZED INTELLIGENCE</Typography>
         </View>
         <Typography variant="body" style={{ marginTop: 12, lineHeight: 22 }}>
           {result?.insight}
         </Typography>
-      </Card>
+        
+        <TouchableOpacity 
+          style={styles.reasoningToggle} 
+          onPress={() => setShowReasoning(!showReasoning)}
+        >
+          <Typography variant="caption" color={COLORS.primary} weight="bold">
+            {showReasoning ? 'Hide AI Reasoning' : 'Show AI Reasoning'}
+          </Typography>
+          {showReasoning ? <ChevronUp color={COLORS.primary} size={16} /> : <ChevronDown color={COLORS.primary} size={16} />}
+        </TouchableOpacity>
 
-      {/* Region Breakdowns with Previews */}
-      <Typography variant="label" style={{ marginTop: 24, marginBottom: 12, marginLeft: 4 }}>
-        VISION REGION ANALYSIS
-      </Typography>
-      {Object.entries(result.metrics.regions).map(([name, region]: any) => (
-        <Card key={name} variant="flat" style={styles.regionCard}>
-          <View style={styles.regionContent}>
-            <View style={styles.regionPreview}>
-              <Image 
-                source={{ uri: region.segmentationUri?.startsWith('file://') ? region.segmentationUri : `file://${region.segmentationUri}` }} 
-                style={styles.regionThumb} 
-              />
-              <View style={styles.maskOverlay} />
+        {showReasoning && (
+          <View style={styles.reasoningContent}>
+            <View style={styles.reasoningItem}>
+              <Activity color={COLORS.textSecondary} size={12} />
+              <Typography variant="caption" style={{ marginLeft: 8 }}>
+                Baseline calibration active since {new Date(result.metrics.baseline?.startingDate || Date.now()).toLocaleDateString()}.
+              </Typography>
             </View>
-            <View style={styles.regionInfo}>
-              <View style={styles.regionHeader}>
-                <Typography weight="bold">{name}</Typography>
-                <Typography variant="label" color={COLORS.primary}>
-                  {Math.round(region.progress)}%
-                </Typography>
-              </View>
-              <View style={styles.progressBarBg}>
-                <View style={[styles.progressBarFill, { width: `${region.progress}%` }]} />
-              </View>
-              <View style={styles.regionMetricsRow}>
-                <Typography variant="caption">Def: {Math.round(region.definition)}%</Typography>
-                <Typography variant="caption">Sym: {Math.round(region.symmetry)}%</Typography>
-              </View>
+            <View style={styles.reasoningItem}>
+              <History color={COLORS.textSecondary} size={12} />
+              <Typography variant="caption" style={{ marginLeft: 8 }}>
+                Current score is stabilized against your historical average of {Math.round(result.metrics.baseline?.historicalAvg || 0)}.
+              </Typography>
             </View>
           </View>
-        </Card>
-      ))}
+        )}
+      </Card>
+
+      {/* Trait Tracking */}
+      <Typography variant="label" style={{ marginTop: 24, marginBottom: 12, marginLeft: 4 }}>
+        PHYSIQUE TRAIT EVOLUTION
+      </Typography>
+      <View style={styles.traitsGrid}>
+        {result.metrics.traits.map((trait) => (
+          <Card key={trait.id} variant="flat" style={styles.traitCard}>
+            <Typography variant="caption" color={COLORS.textSecondary}>{trait.label}</Typography>
+            <View style={styles.traitValueRow}>
+              <Typography weight="bold" variant="h3">{Math.round(trait.value)}%</Typography>
+              <View style={[styles.trendIndicator, { backgroundColor: trait.trend >= 0 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(239, 68, 68, 0.1)' }]}>
+                <Typography color={trait.trend >= 0 ? COLORS.success : COLORS.error} weight="bold" style={{ fontSize: 10 }}>
+                  {trait.trend >= 0 ? '+' : ''}{Math.round(trait.trend)}%
+                </Typography>
+              </View>
+            </View>
+            <Typography variant="label" style={{ fontSize: 9, marginTop: 4 }}>{trait.evolution}</Typography>
+          </Card>
+        ))}
+      </View>
 
       <Button title="Done" onPress={onDone} style={{ marginTop: 32 }} />
     </ScrollView>
@@ -158,16 +178,6 @@ const VisionSignal = ({ icon, label, value }: any) => (
     <Typography variant="caption" style={{ marginLeft: 6, marginRight: 4 }}>{label}:</Typography>
     <Typography variant="caption" weight="bold">{value}%</Typography>
   </View>
-);
-
-const MetricItem = ({ icon, label, value, valueColor = COLORS.textPrimary }: any) => (
-  <Card variant="flat" style={styles.metricItem}>
-    {icon}
-    <Typography variant="label" style={{ marginTop: 8 }}>{label}</Typography>
-    <Typography variant="h3" weight="bold" color={valueColor} style={{ marginTop: 4 }}>
-      {value}
-    </Typography>
-  </Card>
 );
 
 const styles = StyleSheet.create({
@@ -246,53 +256,45 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  regionCard: {
-    marginBottom: 10,
+  reasoningToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.05)',
+  },
+  reasoningContent: {
+    marginTop: 12,
+    backgroundColor: 'rgba(0,0,0,0.2)',
     padding: 10,
-  },
-  regionContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  regionPreview: {
-    width: 60,
-    height: 60,
     borderRadius: BORDER_RADIUS.sm,
-    overflow: 'hidden',
-    marginRight: 12,
-    backgroundColor: '#000',
   },
-  regionThumb: {
-    width: '100%',
-    height: '100%',
-    opacity: 0.7,
-  },
-  maskOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(215, 255, 0, 0.1)',
-  },
-  regionInfo: {
-    flex: 1,
-  },
-  regionHeader: {
+  reasoningItem: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 6,
   },
-  progressBarBg: {
-    height: 4,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 2,
-    marginBottom: 6,
+  traitsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
   },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: COLORS.primary,
-    borderRadius: 2,
+  traitCard: {
+    width: '48%',
+    marginBottom: 10,
+    padding: 12,
   },
-  regionMetricsRow: {
+  traitValueRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  trendIndicator: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
 });
